@@ -1,11 +1,5 @@
-use std::iter::repeat;
-
-use bytes::{Buf, Bytes, BytesMut};
-use chrono::{DateTime, Local, Timelike, Utc};
 use hmac::{Mac, SimpleHmac};
 use rand::{Rng, RngCore};
-use serde_derive::{Deserialize, Serialize};
-use serde_encrypt::encrypt;
 use sha2::Sha256;
 
 use super::Timecode;
@@ -24,64 +18,68 @@ impl User {
     }
 
     /// assert that encrypt_hash is 32 bytes in length
-    pub fn hash_verify_recent(&self, encrypt_hash: Bytes) -> bool {
+    pub fn hash_verify_recent(&self, hash: &[u8; 32]) -> bool {
         Timecode::now()
             .iter_recent()
             .map(|t| self.hash_with_time(t))
-            .any(|x| encrypt_hash.eq(x.as_ref()))
+            .any(|x| hash.eq(x.as_ref()))
     }
 
     fn hash_with_time(&self, time: Timecode) -> [u8; 32] {
         let mut mac = SimpleHmac::<Sha256>::new_from_slice(&self.key).unwrap();
         mac.update(&time.into_bytes());
-        let result = mac.finalize_reset().into_bytes();
-        result.into()
+        let hash = mac.finalize_reset().into_bytes();
+        hash.into()
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Auth {
-    data: Bytes,
+    data: [u8; 256],
 }
-impl Into<Bytes> for Auth {
-    fn into(self) -> Bytes {
+impl Into<[u8; 256]> for Auth {
+    fn into(self) -> [u8; 256] {
         self.data
     }
 }
 impl Auth {
-    pub fn new(data: Bytes) -> Self {
+    pub fn new(data: [u8; 256]) -> Self {
         Self { data }
     }
 
-    pub fn from_hash(hash: [u8; 32]) -> Self {
+    pub fn from_hash(hash: &[u8; 32]) -> Self {
         let mut rng = rand::rng();
 
-        let mut buf = BytesMut::from_iter(rng.clone().random_iter::<u8>().take(u8::MAX as usize));
+        let mut data = [0u8; 256];
+        rng.fill_bytes(&mut data);
 
         let start_at = rng.random_range(1..u8::MAX - 32 - 1) as usize;
 
-        buf[0] = start_at as u8;
-        buf.iter_mut()
+        data[0] = start_at as u8;
+        data.iter_mut()
             .skip(start_at)
             .take(32)
             .enumerate()
             .for_each(|(i, b)| *b = hash[i]);
 
-        let data = buf.freeze();
         Self { data }
     }
-    pub fn get_hash(&self) -> Option<Bytes> {
+    pub fn get_hash(&self) -> Option<[u8; 32]> {
         let start_at = *self.data.first()? as usize;
         let end_at = start_at + 32;
         let minimum_len = end_at + 1;
         if self.data.len() < minimum_len {
             return None;
         }
-        Some(self.data.slice(start_at..end_at))
+        let ret = self.data[start_at..end_at].try_into().unwrap();
+        Some(ret)
+    }
+    pub fn into_bytes(&self) -> [u8; 256] {
+        self.data
     }
 }
 
 mod test {
-
     #[test]
     fn test_auth_loop() {
         (0..100000).for_each(|_| {
@@ -91,21 +89,59 @@ mod test {
 
     #[test]
     fn test_auth() {
-        use bytes::Bytes;
+        use std::array;
 
         use super::Auth;
         use super::User;
 
-        let user = User::new([0; 32]);
-        let data = user.hash_now();
+        let user = User::new(array::from_fn(|x| x as u8));
 
-        let auth = Auth::from_hash(data);
-        let payload: Bytes = auth.into();
+        let hash = user.hash_now();
+        let auth = Auth::from_hash(&hash);
 
-        let auth2 = Auth::new(payload.clone());
+        // assert 1: test auth hash function
+        assert_eq!(auth.get_hash(), Some(hash));
 
-        // println!("{:?}", payload[0]);
-        // println!("{:?}", payload);
-        assert_eq!(auth2.get_hash(), Some(Bytes::copy_from_slice(&data)));
+        let payload_on_wire = auth.into_bytes();
+
+        let auth2 = Auth::new(payload_on_wire.clone());
+
+        // assert 2: auth2 and auth are totally same
+        assert_eq!(auth2, auth);
+
+        // assert 3: test auth to bytes and from bytes function
+        let hash2 = auth2.get_hash();
+        assert_eq!(hash2, Some(hash));
+        let hash2 = hash2.unwrap();
+
+        // assert 4: test hash verify function
+        user.hash_verify_recent(&hash);
+        user.hash_verify_recent(&hash2);
+    }
+
+    #[test]
+    fn test_timeout_failure() {
+        use std::array;
+        use std::time::Duration;
+
+        use super::*;
+
+        let user = User::new(array::from_fn(|x| x as u8));
+        let hash = user.hash_now();
+
+        // assert 5: test timeout failure function
+        std::thread::sleep(Duration::from_secs(1));
+        assert!(user.hash_verify_recent(&hash));
+        std::thread::sleep(Duration::from_secs(1));
+        assert!(user.hash_verify_recent(&hash));
+        std::thread::sleep(Duration::from_secs(1));
+        assert!(user.hash_verify_recent(&hash));
+        std::thread::sleep(Duration::from_secs(1));
+        assert!(user.hash_verify_recent(&hash));
+        std::thread::sleep(Duration::from_secs(1));
+        assert!(user.hash_verify_recent(&hash));
+
+        std::thread::sleep(Duration::from_secs(1));
+        assert!(!user.hash_verify_recent(&hash));
     }
 }

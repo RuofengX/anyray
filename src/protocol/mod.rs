@@ -2,11 +2,8 @@ pub mod auth;
 pub mod data;
 pub mod proxy;
 
-use bytes::Bytes;
-use chrono::{DateTime, Local, Timelike, Utc};
-use hmac::{Mac, SimpleHmac};
+use chrono::Local;
 use serde_derive::{Deserialize, Serialize};
-use sha2::Sha256;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Timecode(i64);
