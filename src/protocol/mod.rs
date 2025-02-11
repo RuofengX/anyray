@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod data;
 pub mod command;
+pub mod remix;
 
 use chrono::Local;
 use hmac::{Mac, SimpleHmac};
