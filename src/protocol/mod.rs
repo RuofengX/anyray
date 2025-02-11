@@ -1,6 +1,6 @@
 pub mod auth;
 pub mod data;
-pub mod proxy;
+pub mod command;
 
 use chrono::Local;
 use hmac::{Mac, SimpleHmac};
