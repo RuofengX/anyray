@@ -1,18 +1,14 @@
 use std::{
     array,
+    io::Read,
     net::{Ipv4Addr, Ipv6Addr},
 };
 
 use rand::Rng;
+use rmp_serde::from_read;
 use serde_derive::{Deserialize, Serialize};
-use serde_encrypt::{
-    serialize::{impls::BincodeSerializer, TypedSerialized},
-    shared_key::SharedKey,
-    traits::SerdeEncryptSharedKey,
-    AsSharedKey, EncryptedMessage,
-};
 
-use super::User;
+use super::{Timecode, Officer};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Addr {
@@ -29,87 +25,71 @@ pub enum Ty {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Request {
+    #[serde(with = "serde_bytes")]
+    key: [u8; 32],
     ty: Ty,
     addr: Addr,
     port: u16,
+    #[serde(with = "serde_bytes")]
+    padding: [u8; 32],
+}
+impl Request {
+    pub fn new(key: [u8; 32], ty: Ty, addr: Addr, port: u16) -> Self {
+        let mut rng = rand::rng();
+        let padding = array::from_fn(|_| rng.random());
+        Self {
+            key,
+            ty,
+            addr,
+            port,
+            padding,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Response {
+    #[serde(with = "serde_bytes")]
+    key: [u8; 32],
+    #[serde(with = "serde_bytes")]
     padding: [u8; 32],
 }
 impl Response {
-    pub fn new() -> Self {
+    pub fn new(key: [u8; 32]) -> Self {
         let mut rng = rand::rng();
         let padding = array::from_fn(|_| rng.random());
-        Self { padding }
+        Self { key, padding }
     }
 }
 
 pub struct ProxyUser {
-    user: User,
+    user: Officer,
 }
 
 impl ProxyUser {
-    pub fn new(user: User) -> Self {
+    pub fn new(user: Officer) -> Self {
         Self { user }
     }
 
     pub fn request(&self, ty: Ty, addr: Addr, port: u16) -> Vec<u8> {
-        let req = Request { ty, addr, port };
-        req.encrypt(&self.key()).unwrap().serialize()
+        let key = self.user.ticket("proxy request");
+        let req = Request::new(key, ty, addr, port);
+        rmp_serde::to_vec(&req).expect("encode function never fail")
     }
 
-    pub fn verify_request(&self, data: Vec<u8>) -> Option<Request> {
-        let msg = EncryptedMessage::deserialize(data).ok()?;
-        self.key_recent()
-            .flat_map(|key| Request::decrypt_owned(&msg, &key).ok())
-            .next()
+    pub fn verify_request<R: Read>(&self, rd: R) -> Option<Request> {
+        self.user.ticket_recent("proxy request");
+        rmp_serde::from_read(rd).ok()
     }
 
     pub fn response(&self) -> Vec<u8> {
-        let resp = Response::new();
-        resp.encrypt(&self.key()).unwrap().serialize()
+        let key = self.user.ticket("proxy response");
+        let req = Response::new(key);
+        rmp_serde::to_vec(&req).expect("encode function never fail")
     }
 
-    pub fn verify_response(&self, data: Vec<u8>) -> Option<()> {
-        let msg = EncryptedMessage::deserialize(data).ok()?;
-        self.key_recent()
-            .flat_map(|key| Response::decrypt_ref(&msg, &key).ok())
-            .flat_map(|i| i.deserialize().ok())
-            .next()?;
-        Some(())
-    }
+    pub fn verify_response(&self, data: Vec<u8>) -> Option<()> {}
 
-    fn key(&self) -> SharedKey {
-        let ticket = self.user.ticket("command");
-        SharedKey::from_array(ticket)
-    }
-    fn key_recent<'s>(&'s self) -> impl Iterator<Item = SharedKey> + 's {
-        self.user
-            .ticket_recent("command")
-            .map(|ticket| SharedKey::from_array(ticket))
-    }
-}
-
-/// from [`serde_encrypt`] doc:
-///
-/// Currently, the following serializers are built-in.
-///
-///     BincodeSerializer (only std feature)
-///         Best choice for std to reduce message size in most cases.
-///     PostcardSerializer
-///         Best choice for no_std to reduce message size in most cases.
-///     CborSerializer
-///         Has large message size but deals with complex serde types. See Encrypts/Decrypts complex serde types example to check kind of serde types only CborSerializer can serialize.
-///         Single available choice in serde-encrypt-sgx.
-///             Both bincode and postcard crates cannot compile with Rust SGX SDK
-impl SerdeEncryptSharedKey for Request {
-    type S = BincodeSerializer<Self>; // you can specify serializer implementation (or implement it by yourself).
-}
-
-impl SerdeEncryptSharedKey for Response {
-    type S = BincodeSerializer<Self>;
 }
 
 #[cfg(test)]
@@ -118,7 +98,7 @@ mod test {
 
     #[test]
     fn test_request() {
-        let user = ProxyUser::new(User::random());
+        let user = ProxyUser::new(Officer::random());
         let req = user.request(Ty::TCP, Addr::Domain("http://github.com".to_string()), 443);
         println!("{:?}", req);
 

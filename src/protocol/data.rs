@@ -1,13 +1,7 @@
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use serde_derive::{Deserialize, Serialize};
-use serde_encrypt::{
-    serialize::{impls::BincodeSerializer, TypedSerialized},
-    shared_key::SharedKey,
-    traits::SerdeEncryptSharedKey,
-    AsSharedKey, EncryptedMessage,
-};
 
-use super::User;
+use super::Officer;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Data<'d>(&'d [u8]);
@@ -23,69 +17,21 @@ impl<'d> Data<'d> {
     }
 }
 
-impl<'d> SerdeEncryptSharedKey for Data<'d> {
-    type S = BincodeSerializer<Self>;
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct DataUser {
-    user: User,
+    user: Officer,
 }
 
 impl DataUser {
-    pub fn new(user: User) -> Self {
+    pub fn new(user: Officer) -> Self {
         Self { user }
     }
 
-    pub fn encrypt_parted(&self, data: &[u8]) -> Bytes {
-        let data = Data::new(data);
-        let key = self.key();
-        data.encrypt(&key).unwrap().serialize().into()
+    fn key(&self) -> [u8; 32] {
+        self.user.ticket("data")
     }
-
-    pub fn decrypt_parted(&self, data: &[u8]) -> Option<Bytes> {
-        // todo!()
-        let msg = EncryptedMessage::deserialize(data.to_vec()).ok()?;
-        self.key_recent()
-            .flat_map(|key| {
-                let decrypted = Data::decrypt_ref(&msg, &key).ok()?;
-                let data = decrypted.deserialize().ok()?;
-                Some(data.copy_to_bytes())
-            })
-            .next()
-    }
-
-    pub fn crypt<'s>(&'s self, data: &'s [u8]) -> impl Iterator<Item = Bytes> + 's {
-        data
-        // split into small chunks
-        // p = 0.0013
-        .chunk_by(|&a, &b|a == b * 3)
-        // encrypt each chunk
-        .map(|chunk| self.encrypt_parted(chunk))
-        // attach size metadata
-        .map(|crypt_chunk|{
-            let mut super_chunk = BytesMut::new();
-            super_chunk.put_u64(crypt_chunk.len() as u64);
-            super_chunk.put(crypt_chunk);
-            super_chunk.freeze()
-        })
-    }
-
-    pub fn decrypt<'s>(&'s self, data: &'s [u8]) -> impl Iterator<Item = Bytes> + 's {
-        data.chunks(1000)
-            .map(|chunk| self.decrypt_parted(chunk))
-            .fuse() // stream should stop when any erro occurs
-            .flatten()
-    }
-
-    fn key(&self) -> SharedKey {
-        let ticket = self.user.ticket("data");
-        SharedKey::from_array(ticket)
-    }
-    fn key_recent<'s>(&'s self) -> impl Iterator<Item = SharedKey> + 's {
-        self.user
-            .ticket_recent("data")
-            .map(|ticket| SharedKey::from_array(ticket))
+    fn key_recent<'s>(&'s self) -> impl Iterator<Item = [u8; 32]> + 's {
+        self.user.ticket_recent("data")
     }
 }
 
@@ -97,9 +43,5 @@ mod test {
 
     use super::*;
     #[test]
-    fn test_crypt() {
-
-
-
-    }
+    fn test_crypt() {}
 }

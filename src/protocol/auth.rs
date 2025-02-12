@@ -2,17 +2,16 @@ use std::array;
 
 use hmac::{Mac, SimpleHmac};
 use rand::Rng;
-use serde_encrypt::{shared_key::SharedKey, AsSharedKey};
 use sha2::Sha256;
 
-use super::{Timecode, User};
+use super::{Timecode, Officer};
 
 #[derive(Debug, Clone, Copy)]
 pub struct AuthUser {
-    user: User,
+    user: Officer,
 }
 impl AuthUser {
-    pub fn new(user: User) -> Self {
+    pub fn new(user: Officer) -> Self {
         Self { user }
     }
 
@@ -32,7 +31,7 @@ mod test {
 
     use chrono::Local;
 
-    use crate::protocol::User;
+    use crate::protocol::Officer;
 
     use super::super::Remix;
     use super::AuthUser;
@@ -46,7 +45,7 @@ mod test {
 
     #[test]
     fn test_auth() {
-        let user = AuthUser::new(User::random());
+        let user = AuthUser::new(Officer::random());
 
         let hash = user.auth();
         let mix = Remix::from_hash(&hash);
@@ -74,7 +73,7 @@ mod test {
     #[test]
     fn test_timeout_failure() {
         let start_ts = Local::now().to_utc().timestamp();
-        let user = AuthUser::new(User::random());
+        let user = AuthUser::new(Officer::random());
         let hash = user.auth();
 
         // assert: test timeout failure function

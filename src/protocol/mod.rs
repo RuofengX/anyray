@@ -1,16 +1,16 @@
 pub mod auth;
-pub mod data;
 pub mod command;
+pub mod data;
 pub mod remix;
 
 use chrono::Local;
 use hmac::{Mac, SimpleHmac};
-use rand::{Rng, RngCore};
+use rand::Rng;
 use serde_derive::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::array;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Timecode(i64);
 impl Timecode {
     pub const RANGE: u8 = 5;
@@ -32,91 +32,76 @@ impl Into<[u8; 8]> for Timecode {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct User {
-    key: [u8; 32],
+pub struct Officer {
+    ticket: Ticket,
 }
-impl User {
-    pub fn new(key: [u8; 32]) -> Self {
-        Self { key }
+impl Officer {
+    pub fn new(ticket: Ticket) -> Self {
+        Self { ticket }
     }
     pub fn random() -> Self {
-        let mut rng = rand::rng();
-        let key = array::from_fn(|_| rng.random());
-        Self { key }
+        let ticket = Ticket::random();
+        Self { ticket }
     }
 
-    pub fn ticket(&self, channel: &'static str) -> [u8; 32] {
+    pub fn ticket(&self, channel: &'static str) -> Ticket {
         self.ticket_with_time(Timecode::now(), channel)
     }
 
-    pub fn verify_recent_ticket(&self, hash: &[u8; 32], channel: &'static str) -> bool {
+    pub fn verify_recent_ticket(&self, key: &Ticket, channel: &'static str) -> bool {
         Timecode::now()
             .iter_recent()
             .map(|t| self.ticket_with_time(t, channel))
-            .any(|x| hash.eq(x.as_ref()))
+            .any(|x| key.eq(&x))
     }
 
-    pub fn ticket_recent<'s>(
-        &'s self,
-        channel: &'static str,
-    ) -> impl Iterator<Item = [u8; 32]> + 's {
+    pub fn ticket_recent<'s>(&'s self, channel: &'static str) -> impl Iterator<Item = Ticket> + 's {
         Timecode::now()
             .iter_recent()
             .map(move |t| self.ticket_with_time(t, channel))
     }
 
-    fn ticket_with_time(&self, time: Timecode, channel: &'static str) -> [u8; 32] {
-        let mut mac = SimpleHmac::<Sha256>::new_from_slice(&self.key).unwrap();
+    fn ticket_with_time(&self, time: Timecode, channel: &'static str) -> Ticket {
+        let mut mac = SimpleHmac::<Sha256>::new_from_slice(self.ticket.as_ref()).unwrap();
         mac.update(&time.into_bytes());
         mac.update(channel.as_bytes());
-        let hash = mac.finalize_reset().into_bytes();
-        hash.into()
+        let hash = mac.finalize_reset().into_bytes().into();
+        Ticket::from_bytes(hash)
     }
-
-
 }
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Remix {
-    data: [u8; 256],
-}
-impl Into<[u8; 256]> for Remix {
-    fn into(self) -> [u8; 256] {
-        self.data
+pub struct Ticket([u8; 32]);
+impl Ticket {
+    pub fn from_bytes(value: [u8; 32]) -> Self {
+        Self(value)
     }
-}
-impl Remix {
-    pub fn new(data: [u8; 256]) -> Self {
-        Self { data }
-    }
-
-    pub fn from_hash(hash: &[u8; 32]) -> Self {
+    pub fn random() -> Self {
         let mut rng = rand::rng();
-
-        let mut data = [0u8; 256];
-        rng.fill_bytes(&mut data);
-
-        let start_at = rng.random_range(1..u8::MAX - 32 - 1) as usize;
-
-        data[0] = start_at as u8;
-        data.iter_mut()
-            .skip(start_at)
-            .take(32)
-            .enumerate()
-            .for_each(|(i, b)| *b = hash[i]);
-
-        Self { data }
-    }
-    pub fn get_hash(&self) -> Option<[u8; 32]> {
-        let start_at = *self.data.first()? as usize;
-        let end_at = start_at + 32;
-        let minimum_len = end_at + 1;
-        if self.data.len() < minimum_len {
-            return None;
-        }
-        let ret = self.data[start_at..end_at].try_into().unwrap();
-        Some(ret)
-    }
-    pub fn into_bytes(&self) -> [u8; 256] {
-        self.data
+        let data = array::from_fn(|_| rng.random());
+        Ticket(data)
     }
 }
+impl AsRef<[u8]> for Ticket {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+impl From<[u8; 32]> for Ticket {
+    fn from(value: [u8; 32]) -> Self {
+        Ticket(value)
+    }
+}
+impl Into<[u8; 32]> for Ticket {
+    fn into(self) -> [u8; 32] {
+        self.0
+    }
+}
+
+pub trait Certified: AsRef<Ticket> {
+    fn verify_recent(&self, user: &Officer, channel: &'static str) -> bool {
+        user.verify_recent_ticket(self.as_ref(), channel)
+    }
+}
+
+impl<T: AsRef<Ticket>> Certified for T {}
