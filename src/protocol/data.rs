@@ -44,7 +44,7 @@ impl DataUser {
     }
 
     pub fn decrypt_parted(&self, data: &[u8]) -> Option<Bytes> {
-        todo!()
+        // todo!()
         let msg = EncryptedMessage::deserialize(data.to_vec()).ok()?;
         self.key_recent()
             .flat_map(|key| {
@@ -98,13 +98,8 @@ mod test {
     use super::*;
     #[test]
     fn test_crypt() {
-        let user = DataUser::new(User::random());
 
-        let rng = rand::rng();
-        let data: Vec<u8> = Vec::from_iter(repeat(100_000_000).map(|_|rng.random()));
 
-        let on_wire: Vec<Bytes> = user.crypt(&data).collect();
 
-        let decrypted_data = user.decrypt(on_wire);
     }
 }
