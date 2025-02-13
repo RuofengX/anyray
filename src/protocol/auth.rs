@@ -4,14 +4,14 @@ use hmac::{Mac, SimpleHmac};
 use rand::Rng;
 use sha2::Sha256;
 
-use super::{Timecode, Officer};
+use super::{Timecode, User};
 
 #[derive(Debug, Clone, Copy)]
 pub struct AuthUser {
-    user: Officer,
+    user: User,
 }
 impl AuthUser {
-    pub fn new(user: Officer) -> Self {
+    pub fn new(user: User) -> Self {
         Self { user }
     }
 
@@ -31,7 +31,7 @@ mod test {
 
     use chrono::Local;
 
-    use crate::protocol::Officer;
+    use crate::protocol::User;
 
     use super::super::Remix;
     use super::AuthUser;
@@ -45,7 +45,7 @@ mod test {
 
     #[test]
     fn test_auth() {
-        let user = AuthUser::new(Officer::random());
+        let user = AuthUser::new(User::random());
 
         let hash = user.auth();
         let mix = Remix::from_hash(&hash);
@@ -73,7 +73,7 @@ mod test {
     #[test]
     fn test_timeout_failure() {
         let start_ts = Local::now().to_utc().timestamp();
-        let user = AuthUser::new(Officer::random());
+        let user = AuthUser::new(User::random());
         let hash = user.auth();
 
         // assert: test timeout failure function

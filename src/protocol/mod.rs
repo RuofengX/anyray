@@ -1,6 +1,6 @@
-pub mod auth;
-pub mod command;
-pub mod data;
+// pub mod auth;
+// pub mod command;
+// pub mod data;
 pub mod remix;
 
 use chrono::Local;
@@ -32,10 +32,10 @@ impl Into<[u8; 8]> for Timecode {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Officer {
+pub struct User {
     ticket: Ticket,
 }
-impl Officer {
+impl User {
     pub fn new(ticket: Ticket) -> Self {
         Self { ticket }
     }
@@ -44,27 +44,26 @@ impl Officer {
         Self { ticket }
     }
 
-    pub fn ticket(&self, channel: &'static str) -> Ticket {
-        self.ticket_with_time(Timecode::now(), channel)
+    pub fn ticket(&self) -> Ticket {
+        self.ticket_with_time(Timecode::now())
     }
 
-    pub fn verify_recent_ticket(&self, key: &Ticket, channel: &'static str) -> bool {
+    pub fn verify_recent_ticket(&self, key: &Ticket) -> bool {
         Timecode::now()
             .iter_recent()
-            .map(|t| self.ticket_with_time(t, channel))
+            .map(|t| self.ticket_with_time(t))
             .any(|x| key.eq(&x))
     }
 
-    pub fn ticket_recent<'s>(&'s self, channel: &'static str) -> impl Iterator<Item = Ticket> + 's {
+    pub fn ticket_recent<'s>(&'s self) -> impl Iterator<Item = Ticket> + 's {
         Timecode::now()
             .iter_recent()
-            .map(move |t| self.ticket_with_time(t, channel))
+            .map(move |t| self.ticket_with_time(t))
     }
 
-    fn ticket_with_time(&self, time: Timecode, channel: &'static str) -> Ticket {
+    fn ticket_with_time(&self, time: Timecode) -> Ticket {
         let mut mac = SimpleHmac::<Sha256>::new_from_slice(self.ticket.as_ref()).unwrap();
         mac.update(&time.into_bytes());
-        mac.update(channel.as_bytes());
         let hash = mac.finalize_reset().into_bytes().into();
         Ticket::from_bytes(hash)
     }
@@ -82,8 +81,8 @@ impl Ticket {
         Ticket(data)
     }
 }
-impl AsRef<[u8]> for Ticket {
-    fn as_ref(&self) -> &[u8] {
+impl AsRef<[u8; 32]> for Ticket {
+    fn as_ref(&self) -> &[u8; 32] {
         &self.0
     }
 }
@@ -99,8 +98,8 @@ impl Into<[u8; 32]> for Ticket {
 }
 
 pub trait Certified: AsRef<Ticket> {
-    fn verify_recent(&self, user: &Officer, channel: &'static str) -> bool {
-        user.verify_recent_ticket(self.as_ref(), channel)
+    fn verify_recent(&self, user: &User) -> bool {
+        user.verify_recent_ticket(self.as_ref())
     }
 }
 

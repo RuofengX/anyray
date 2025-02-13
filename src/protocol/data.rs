@@ -1,7 +1,7 @@
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use serde_derive::{Deserialize, Serialize};
 
-use super::Officer;
+use super::User;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Data<'d>(&'d [u8]);
@@ -19,11 +19,11 @@ impl<'d> Data<'d> {
 
 #[derive(Debug, Clone, Copy)]
 pub struct DataUser {
-    user: Officer,
+    user: User,
 }
 
 impl DataUser {
-    pub fn new(user: Officer) -> Self {
+    pub fn new(user: User) -> Self {
         Self { user }
     }
 

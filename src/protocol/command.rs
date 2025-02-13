@@ -8,7 +8,7 @@ use rand::Rng;
 use rmp_serde::from_read;
 use serde_derive::{Deserialize, Serialize};
 
-use super::{Timecode, Officer};
+use super::{Timecode, User};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Addr {
@@ -63,11 +63,11 @@ impl Response {
 }
 
 pub struct ProxyUser {
-    user: Officer,
+    user: User,
 }
 
 impl ProxyUser {
-    pub fn new(user: Officer) -> Self {
+    pub fn new(user: User) -> Self {
         Self { user }
     }
 
@@ -98,7 +98,7 @@ mod test {
 
     #[test]
     fn test_request() {
-        let user = ProxyUser::new(Officer::random());
+        let user = ProxyUser::new(User::random());
         let req = user.request(Ty::TCP, Addr::Domain("http://github.com".to_string()), 443);
         println!("{:?}", req);
 
